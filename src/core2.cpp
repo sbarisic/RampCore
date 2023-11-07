@@ -218,7 +218,13 @@ void core2_main_impl(void* args) {
     {
         vTaskDelay(pdMS_TO_TICKS(1000));
     }
-    
+}
+
+void printf_time_now()
+{
+    char buf[21] = {0};
+    core2_clock_time_now(buf);
+    printf("[%s] ", buf);
 }
 
 void setup()

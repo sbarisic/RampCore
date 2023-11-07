@@ -169,3 +169,10 @@ bool core2_web_json_post(const char *server_name, const char *json_txt, size_t j
 // =================================================================================================
 
 void core2_shell_init();
+
+// Rampa
+// =================================================================================================
+
+void core2_toggle_ramp();
+void printf_time_now();
+void core2_main_firebase(void* a);

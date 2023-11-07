@@ -2,8 +2,13 @@
 #include <driver/gpio.h>
 #include <mqtt_client.h>
 
-bool has_errors = false;
-bool toggle_remote = false;
+#define printff(...)         \
+    do                       \
+    {                        \
+        printf_time_now();   \
+        printf(__VA_ARGS__); \
+    } while (0)
+
 
 const char *topic_1 = "serengeti/rampa";
 int qos_1 = 1;
@@ -11,19 +16,12 @@ int qos_1 = 1;
 const char *topic_2 = "serengeti/crash";
 int qos_2 = 1;
 
-void printf_time_now()
-{
-    char buf[21] = {0};
-    core2_clock_time_now(buf);
-    printf("[%s] ", buf);
-}
+volatile bool has_errors = false;
+volatile bool toggle_remote = false;
 
-#define printff(...)         \
-    do                       \
-    {                        \
-        printf_time_now();   \
-        printf(__VA_ARGS__); \
-    } while (0)
+void core2_toggle_ramp() {
+    toggle_remote = true;
+}
 
 void printerr(esp_err_t err, const char *msg)
 {
@@ -34,6 +32,8 @@ void printerr(esp_err_t err, const char *msg)
     core2_err_tostr(err, buf);
 
     printf("[ERR] %s - %s\n", buf, msg);
+
+    has_errors = true;
 }
 
 void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_t event_id, void *event_data)
@@ -55,6 +55,7 @@ void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_t event
 
     case MQTT_EVENT_DISCONNECTED:
         printff("MQTT_EVENT_DISCONNECTED\n");
+        has_errors = true;
         break;
 
     case MQTT_EVENT_SUBSCRIBED:
@@ -89,6 +90,7 @@ void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_t event
 
     case MQTT_EVENT_ERROR:
         printff("MQTT_EVENT_ERROR\n");
+        has_errors = true;
 
         /*if (event->error_handle->error_type == MQTT_ERROR_TYPE_TCP_TRANSPORT)
         {
@@ -112,7 +114,21 @@ void core2_main()
 
     printff("Starting\n");
     toggle_remote = false;
+    has_errors = false;
 
+    printff("Setting up GPIO\n");
+    gpio_num_t INPUT_PIN = GPIO_NUM_15;
+
+    gpio_pad_select_gpio(INPUT_PIN);
+    gpio_set_direction(INPUT_PIN, GPIO_MODE_OUTPUT);
+
+    gpio_pullup_en(INPUT_PIN);
+    gpio_set_level(INPUT_PIN, HIGH);
+
+    // Uncomment to enable firebase, drops socket connection currently
+    xTaskCreatePinnedToCore(core2_main_firebase, "core2_main_firebase", 1024 * 16, NULL, 5, NULL, 1);
+
+    printf("Setting up MQTT\n");
     esp_mqtt_client_config_t mqtt_cfg = {.uri = "mqtt://167.86.127.239:1883"};
 
     printff("esp_mqtt_client_init()\n");
@@ -126,18 +142,11 @@ void core2_main()
     err = esp_mqtt_client_start(mqtt_cli);
     printerr(err, "esp_mqtt_client_start failed");
 
-    printff("Setting up GPIO\n");
-    gpio_num_t INPUT_PIN = GPIO_NUM_15;
-
-    gpio_pad_select_gpio(INPUT_PIN);
-    gpio_set_direction(INPUT_PIN, GPIO_MODE_OUTPUT);
-
-    gpio_pullup_en(INPUT_PIN);
-    gpio_set_level(INPUT_PIN, HIGH);
-
     printff("Ready\n");
     while (true)
     {
+        vTaskDelay(pdMS_TO_TICKS(50));
+
         if (toggle_remote)
         {
             toggle_remote = false;
@@ -152,12 +161,10 @@ void core2_main()
             continue;
         }
 
-        vTaskDelay(pdMS_TO_TICKS(250));
-
         if (has_errors)
         {
-            printf("Restarting in 3 seconds\n");
-            vTaskDelay(pdMS_TO_TICKS(3000));
+            printf("Restarting in 20 seconds\n");
+            vTaskDelay(pdMS_TO_TICKS(20000));
             ESP.restart();
         }
     }
